@@ -1,5 +1,6 @@
 package com.clwillingham.socket.io;
 
+import com.clwillingham.socket.io.log.Log;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URI;
@@ -15,30 +16,29 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class IOSocket {
-	
-	private IOWebSocket webSocket;
-	private URL connection;
-	private String sessionID;
-	private int heartTimeout;
-	private int closingTimeout;
-	private int connectTimeout = 10000;
-	private String[] protocals;
-	private final String webSocketAddress;
+    private IOWebSocket webSocket;
+    private URL connection;
+    private String sessionID;
+    private int heartTimeout;
+    private int closingTimeout;
+    private int connectTimeout = 10000;
+    private String[] protocals;
+    private final String webSocketAddress;
     private final String namespace;
-	private final MessageCallback callback;
-	private Timer timer;
+    private final MessageCallback callback;
+    private Timer timer;
 	
-	private int ackCount = 0;
-	private HashMap<Integer, AckCallback> ackCallbacks = new HashMap<Integer, AckCallback>();
+    private int ackCount = 0;
+    private HashMap<Integer, AckCallback> ackCallbacks = new HashMap<Integer, AckCallback>();
 	
-	private boolean connecting;
-	private boolean connected;
-	private boolean open;
+    private boolean connecting;
+    private boolean connected;
+    private boolean open;
 	
-	public IOSocket(String address, MessageCallback callback){
-        
+    public IOSocket(String address, MessageCallback callback) {
         // check for socket.io namespace
         int i = address.lastIndexOf("/");
+        
         if (address.charAt(i-1) != '/') {
             namespace = address.substring(i);
             webSocketAddress = address.substring(0, i);
@@ -47,109 +47,106 @@ public class IOSocket {
             webSocketAddress = address;
         }
         
-		this.callback = callback;
-	}
+	this.callback = callback;
+    }
 	
-	public void connect() {
-		synchronized(this) {
-			connecting = true;
-		}
-		
-		timer = new Timer();
-		timer.schedule(new ConnectTimeout(), connectTimeout);
-		
+    public void connect() {
+        synchronized(this) {
+            connecting = true;
+        }
+        
+        timer = new Timer();
+        timer.schedule(new ConnectTimeout(), connectTimeout);
+
         (new Thread(new Handshake())).start();
-	}
+    }
 	
-	public void emit(String event, JSONObject... message) throws IOException {
-		try {
-			JSONObject data = new JSONObject();
-			JSONArray args = new JSONArray();
-			for (JSONObject arg : message) {
-				args.put(arg);
-			}
-			data.put("name", event);
-			data.put("args", args);
-			IOMessage packet = new IOMessage(IOMessage.EVENT, "", data.toString());
-			webSocket.sendMessage(packet);
-		} catch (JSONException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
-		}
-	}
-	
-	public void emit(String event, JSONObject message, AckCallback callback) throws IOException {
-		try {
-			JSONObject data = new JSONObject();
-			data.put("name", event);
-			data.put("args", message);
-			IOMessage packet = new IOMessage(IOMessage.EVENT, addAcknowledge(callback, message), "", data.toString());
-			packet.setAck(true);
-			webSocket.sendMessage(packet);
-		} catch (JSONException e) {
-			e.printStackTrace();
-		}
-	}
-	
-	public void send(String message) throws IOException {
-		IOMessage packet = new IOMessage(IOMessage.MESSAGE, "", message);
-		webSocket.sendMessage(packet);
-	}
-	
-	public synchronized void disconnect() {
-		if (connected) {
-			try {
-				if (open) {
-					webSocket.sendMessage(new IOMessage(IOMessage.DISCONNECT, "", ""));
-				}
-			} catch (IOException e) {
-				e.printStackTrace();
-			}
-			
-			onDisconnect();
-		}	
-	}
+    public void emit(String event, JSONObject... message) throws IOException {
+        try {
+            JSONObject data = new JSONObject();
+            JSONArray args = new JSONArray();
+            for (JSONObject arg : message) {
+                    args.put(arg);
+            }
+            data.put("name", event);
+            data.put("args", args);
+            IOMessage packet = new IOMessage(IOMessage.EVENT, "", data.toString());
+            webSocket.sendMessage(packet);
+        } catch (JSONException e) {
+            Log.error(e.getMessage());
+        } catch (InterruptedException e) {
+            Log.error(e.getMessage());
+        }
+    }
 
-	synchronized void onOpen() {
-		open = true;
-	}
-	
-	synchronized void onClose() {
-		open = false;
-	}
-	
-	synchronized void onConnect() {
+    public void emit(String event, JSONObject message, AckCallback callback) throws IOException {
+        try {
+            JSONObject data = new JSONObject();
+            data.put("name", event);
+            data.put("args", message);                        
+            IOMessage packet = new IOMessage(IOMessage.EVENT, addAcknowledge(callback, message), "", data.toString());
+            packet.setAck(true);
+            webSocket.sendMessage(packet);
+        } catch (JSONException e) {
+            Log.error(e.getMessage());
+        } catch (InterruptedException e) {
+            Log.error(e.getMessage());
+        }
+    }
 
-		if (!connected) {
-			connected = true;
-			connecting = false;
-			
-			callback.onConnect();
-		}
-	}
-	
-	synchronized void onDisconnect() {
-		boolean wasConnected = connected;
-		
-		connected = false;
-		connecting = false;
-		
-		if (open) {
-			try {
-				webSocket.close();
-			} catch (IOException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			
-		}
-		
-		if (wasConnected) {
-			callback.onDisconnect();
-			
-			//TODO: reconnect
-		}
-	}
+    public void send(String message) throws InterruptedException {
+        IOMessage packet = new IOMessage(IOMessage.MESSAGE, "", message);
+        webSocket.sendMessage(packet);
+    }
+
+    public synchronized void disconnect() {
+        if (connected) {
+            try {
+                if (open) {
+                    webSocket.sendMessage(new IOMessage(IOMessage.DISCONNECT, "", ""));
+                }
+            } catch (InterruptedException e) {
+                Log.error(e.getMessage());
+            }
+            onDisconnect();
+        }
+    }
+
+    synchronized void onOpen() {
+        open = true;
+    }
+
+    synchronized void onClose() {
+        open = false;
+    }
+
+    synchronized void onConnect() {
+        if (!connected) {
+            connected = true;
+            connecting = false;
+
+            callback.onConnect();
+        }
+    }
+
+    synchronized void onDisconnect() {
+        boolean wasConnected = connected;
+
+        connected = false;
+        connecting = false;
+
+        if (open) {
+            try {
+                webSocket.close();
+            } catch (Exception e) {
+                Log.error(e.getMessage());
+            }
+        }
+
+        if (wasConnected) {
+            callback.onDisconnect();
+        }
+    }
     
     private synchronized void onConnectFailure() {
         connecting = false;
@@ -158,94 +155,93 @@ public class IOSocket {
         callback.onConnectFailure();
     }
 
-	public void onAcknowledge(int ackId, JSONArray data) {
-		AckCallback ackCallback = ackCallbacks.get(ackId);
-		if (ackCallback != null) {
-			try {
-				ackCallback.callback(data);
-			} catch (JSONException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
-			ackCallbacks.remove(ackId);
-		}
-	}
-	
-	public synchronized boolean isConnected() {
-		return connected;
-	}
-	
-	public synchronized boolean isConnecting() {
-		return connecting;
-	}
-	
-	public boolean isOpen() {
-		return open;
-	}
+    public void onAcknowledge(int ackId, JSONArray data) {
+        AckCallback ackCallback = ackCallbacks.get(ackId);
+        if (ackCallback != null) {
+            try {
+                ackCallback.callback(data);
+            } catch (JSONException e) {
+                Log.error(e.getMessage());
+            }
+            ackCallbacks.remove(ackId);
+        }
+    }
 
-	public void setConnection(URL connection) {
-		this.connection = connection;
-	}
-	
-	private int addAcknowledge(AckCallback cb, JSONObject message) {
-		if (cb != null) {
-			cb.setRequestData(message);
-			ackCount++;
-			ackCallbacks.put(ackCount, cb);
-			return ackCount;
-		}
-		
-		return -1;
-	}
+    public synchronized boolean isConnected() {
+        return connected;
+    }
 
+    public synchronized boolean isConnecting() {
+        return connecting;
+    }
 
-	public URL getConnection() {
-		return connection;
-	}
+    public boolean isOpen() {
+        return open;
+    }
 
-	public void setConnectTimeout(int connectTimeout) {
-		this.connectTimeout = connectTimeout;
-	}
-	
-	public int getConnectTimeout() {
-		return connectTimeout;
-	}
+    public void setConnection(URL connection) {
+        this.connection = connection;
+    }
 
-	public void setHeartTimeout(int heartTimeOut) {
-		this.heartTimeout = heartTimeOut;
-	}
+    private int addAcknowledge(AckCallback cb, JSONObject message) {
+        if (cb != null) {
+            cb.setRequestData(message);
+            ackCount++;
+            ackCallbacks.put(ackCount, cb);
+            return ackCount;
+        }
 
-	public int getHeartTimeout() {
-		return heartTimeout;
-	}
-	
-	public void setClosingTimeout(int closingTimeout) {
-		this.closingTimeout = closingTimeout;
-	}
-
-	public int getClosingTimeout() {
-		return closingTimeout;
-	}
+        return -1;
+    }
 
 
-	public void setSessionID(String sessionID) {
-		this.sessionID = sessionID;
-	}
+    public URL getConnection() {
+        return connection;
+    }
+
+    public void setConnectTimeout(int connectTimeout) {
+        this.connectTimeout = connectTimeout;
+    }
+
+    public int getConnectTimeout() {
+        return connectTimeout;
+    }
+
+    public void setHeartTimeout(int heartTimeOut) {
+        this.heartTimeout = heartTimeOut;
+    }
+
+    public int getHeartTimeout() {
+        return heartTimeout;
+    }
+
+    public void setClosingTimeout(int closingTimeout) {
+        this.closingTimeout = closingTimeout;
+    }
+
+    public int getClosingTimeout() {
+        return closingTimeout;
+    }
 
 
-	public String getSessionID() {
-		return sessionID;
-	}
+    public void setSessionID(String sessionID) {
+        this.sessionID = sessionID;
+    }
 
 
-	public void setProtocals(String[] protocals) {
-		this.protocals = protocals;
-	}
+    public String getSessionID() {
+        return sessionID;
+    }
 
 
-	public String[] getProtocals() {
-		return protocals;
-	}
+    public void setProtocals(String[] protocals) {
+        this.protocals = protocals;
+    }
+
+
+    public String[] getProtocals() {
+        return protocals;
+    }
     
     private synchronized void onHandshakeSuccess() {
         if (!connecting) {
@@ -272,43 +268,47 @@ public class IOSocket {
 
                 // process handshake response
                 // example: 4d4f185e96a7b:15:10:websocket,xhr-polling
-                if(response.contains(":")) {
+                if (response.contains(":")) {
                     String[] data = response.split(":");
                     setSessionID(data[0]);
                     setHeartTimeout(Integer.parseInt(data[1]) * 1000);
                     setClosingTimeout(Integer.parseInt(data[2]) * 1000);
                     setProtocals(data[3].split(","));
  
+                    Log.info("Handshaked: " + data[0]);
                     onHandshakeSuccess();
                 } else {
+                    Log.error("Response error: " + response.toString());
                     onConnectFailure();
                 }
 
             } catch (IOException e) {
+                Log.error(e.getMessage());
                 onConnectFailure();
             }
         }
     }
 	
-	private class ConnectTimeout extends TimerTask {
-		@Override
-		public void run() {
-			synchronized(IOSocket.this) {
-				if (connected || !connecting) {
-					return;
-				}
-				connecting = false;
-				
-				if (webSocket != null) {
-					try {
-						webSocket.close();
-					} catch (IOException e) {
-						// TODO Auto-generated catch block
-						e.printStackTrace();
-					}
-				}
-				onConnectFailure();
-			}
-		}
-	}
+    private class ConnectTimeout extends TimerTask {
+        @Override
+        public void run() {
+            synchronized(IOSocket.this) {
+                if (connected || !connecting) {
+                    return;
+                }
+                connecting = false;
+
+                if (webSocket != null) {
+                    try {
+                        webSocket.close();
+                    } catch (Exception e) {
+                        Log.error(e.getMessage());
+                    }
+                }
+                Log.error("Connection timed out");
+                onConnectFailure();
+            }
+        }
+    }
+
 }
